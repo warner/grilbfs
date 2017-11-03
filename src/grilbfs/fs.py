@@ -72,3 +72,58 @@
 # to a trusted local disk, this protects you against the backing store being
 # rewound to an earlier version.
 
+import sys, stat, errno
+import llfuse
+from llfuse import (Operations, EntryAttributes, ROOT_INODE, FUSEError)
+
+class GrilbFS(Operations):
+    def __init__(self):
+        super(GrilbFS, self).__init__()
+        self.hello_inode = ROOT_INODE+1
+    def getattr(self, inode, ctx=None):
+        entry = EntryAttributes()
+        if inode == ROOT_INODE:
+            entry.st_mode = stat.S_IFDIR | 0o755
+            entry.st_size = 0
+        elif inode == self.hello_inode:
+            entry.st_mode = stat.S_IFREG | 0o644
+            entry.st_size = len(b"hello")
+        else:
+            raise FUSEError(errno.ENOENT)
+        entry.st_ino = inode
+        return entry
+
+    def opendir(self, inode, ctx):
+        if inode == ROOT_INODE:
+            return inode
+        raise FUSEError(errno.ENOENT)
+    def readdir(self, fh, off):
+        assert fh == ROOT_INODE
+        if off == 0:
+            yield (b"hello", self.getattr(self.hello_inode), 1)
+
+    def lookup(self, parent_inode, name, ctx=None):
+        if parent_inode != ROOT_INODE or name != b"hello":
+            raise FUSEError(errno.ENOENT)
+        return self.getattr(self.hello_inode)
+
+
+
+def main():
+    mountpoint = sys.argv[1]
+    ops = GrilbFS()
+    fuse_options = set(llfuse.default_options)
+    fuse_options.add("fsname=grilbfs")
+    #fuse_options.add("default_permissions")
+    fuse_options.add("debug")
+
+    llfuse.init(ops, mountpoint, fuse_options)
+    try:
+        llfuse.main(workers=1)
+    except:
+        llfuse.close(unmount=False)
+        raise
+    llfuse.close()
+
+if __name__ == "__main__":
+    main()
